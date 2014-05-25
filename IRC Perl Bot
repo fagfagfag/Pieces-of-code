@@ -1,0 +1,173 @@
+#!/usr/bin/perl -w
+
+#falco.pl
+
+use strict;
+use warnings;
+use v5.18.2;
+use POE;
+use POE::Component::IRC;
+use Digest::SHA3 qw(sha3_512_hex);
+use Digest::MD5 qw(md5_hex);
+
+#config--------------------------------------------
+sub CHANNEL () {"#salt"}
+my $server = "localhost";
+my $port = 6668;
+my $botnick = "falco";
+my $login = "falco";
+my $channel = "#salt";
+#config--------------------------------------------
+
+#component representing an IRC network
+my ($irc) = POE::Component::IRC->spawn();
+
+# Create the bot session.  The new() call specifies the events the bot
+# knows about and the functions that will handle those events.
+POE::Session->create(
+	inline_states =>{
+		_start => \&bot_start,
+		irc_001 => \&on_connect,
+		irc_public => \&on_public,
+	},
+);
+
+# The bot session has started.  Register this bot with the "magnet"
+# IRC component.  Select a nickname.  Connect to a server.
+sub bot_start{
+	$irc -> yield(register => "all");
+	$irc -> yield(
+	connect =>{
+		Nick => $botnick,
+		Username => $login,
+		Ircname => 'POE::Component::IRC',
+		Server => $server,
+		Port => $port,
+		}
+	)
+}
+
+#on successful connection
+sub on_connect {
+	$irc->yield(join => CHANNEL);
+	print "Connection success\n";
+	}
+	
+#vars for use by on_public
+my $dito = "nobody";
+my %seendb;#seen data
+my %greetdb;#greetings
+my $assclown = 0;#assclown count
+
+sub on_public {#on message recieved
+  my ($kernel, $who, $where, $msg) = @_[KERNEL, ARG0, ARG1, ARG2];
+  my $nick    = (split /!/, $who)[0];
+  my $channel = $where->[0];
+  my $ts      = scalar time;
+  print " [$ts] <$nick:$channel> $msg\n";#print to console
+  my @yarn = split(' ', $msg, 4);#tokenize string
+  my $responce = " ";
+  %seendb = ($nick => $ts);#update seendb
+#parse the tokens
+given($yarn[0] eq $botnick){
+#BARREL ROLL
+ when($msg eq "do a barrel roll"){$irc->yield(privmsg=> CHANNEL, "IS DOING A BARREL ROLL!"); break;}
+  when($msg eq $nick){$irc->yield(privmsg=> CHANNEL, "Sir."); break;}
+  when($msg eq "hi $botnick"){$irc->yield(privmsg=> CHANNEL, "hi $nick"); break;}
+  when($msg eq "hello $botnick"){$irc->yield(privmsg=> CHANNEL, "o/ hello $nick"); break;}
+  #if falco is called
+  given($yarn[1]){#bot-nick ARG0 ARG1 ARG3 -- could be a bunch of subs after when($yarn[i])
+	when("echo"){#dito; assclown mimicry
+		$dito = $yarn[2];
+		$irc->yield(privmsg=> CHANNEL, "$nick: $msg");
+		break;
+		}
+		when("hash"){#hash / digest
+			given($yarn[2]){
+				when("sha3"){#sha3
+					my $sha3h = sha3_512_hex($yarn[3]);	
+					$irc->yield(privmsg=> CHANNEL, "$nick: $sha3h");
+					break;
+				}
+				when("md5"){#md5
+					my $md5h = md5_hex($yarn[3]);
+					$irc->yield(privmsg=> CHANNEL, "$nick: $md5h");
+					break;
+				}
+				default{#defaults to sha3 512
+					my $hash = sha3_512_hex($yarn[2] + $yarn[3]);
+					$irc->yield(privmsg=> CHANNEL, "$nick: $hash");
+					break;
+					}
+			}
+		}
+		when("shoot" or "kill"){#F1RE TEH LAZ3RZ!1!
+			my $target = $yarn[2];
+			$irc->yield(privmsg=> CHANNEL, "IS A FIRING MAH LAZ3RZ AT $target \n pew pew pew");
+		break;
+		}
+		when("list"){#list availible commands
+			given($yarn[1]){
+				when("assclown"){
+					$irc->yield(privmsg=> CHANNEL, "Number of recorded assclowns.");
+					break;
+					}
+				when("echo"){
+					$irc->yield(privmsg=> CHANNEL, "echo is an assclown command; assclown++");
+					break;
+					}
+				when("greet"){
+					$irc->yield(privmsg=> CHANNEL, "Use 'bot greet me ...' to set your greeting.");
+					break;
+					}
+				when("hash"){
+					$irc->yield(privmsg=> CHANNEL, "options are sha3 and md5");
+					break;
+					}
+				when("shoot"){
+					$irc->yield(privmsg=> CHANNEL, "Fires MAH L4Z0rZ!!!");
+					break;
+					}
+				when("seen"){
+					$irc->yield(privmsg=> CHANNEL, "Returns time of last recorded message.");
+					break;
+					}
+				default{my $commandz = "assclown, echo, greet, hash, shoot, seen, list";
+					$irc->yield(privmsg=> CHANNEL, $commandz);
+					}
+			}
+		}
+		when("seen"){#the seen command
+			$responce = $seendb{$yarn[2]};
+			$irc->yield(privmsg=> CHANNEL, $responce);
+		break;
+		}
+		when("assclown"){#count the assclowns
+			$irc->yield(privmsg=> CHANNEL, "assclowns:  $assclown");
+			break;
+		}
+		when("greet"){#greet your homies & your haters
+			if($yarn[2] eq "me"){%greetdb = ($nick => $yarn[3]);}
+			$responce = $greetdb{$yarn[2]};
+			$irc->yield(privmsg=> CHANNEL, $responce);
+		break;
+		}
+		default{#default
+			if($yarn[0] eq $botnick){$irc->yield(privmsg=> CHANNEL, "Sir. WTF?");}
+		}
+	}
+	when($nick eq $dito){#dito the current $dito(echo command)
+		$responce = "$nick: $msg";
+		$irc->yield(privmsg=> CHANNEL, $responce);
+	break;
+	}
+default{#ARG0 default
+	if($msg =~ /$botnick/i){$irc->yield(privmsg=> CHANNEL, "Talking about me?");}
+	}
+}
+#let the pattern matching begin!
+if($msg =~ /assclown/i){$assclown++;}
+}
+# Run the bot until it is done. Runs your subs.
+$poe_kernel->run();
+exit 0;
