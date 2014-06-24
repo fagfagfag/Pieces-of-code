@@ -1,0 +1,246 @@
+################################
+# Postman Module                #
+################################
+
+#hugs and kisses from lezhdraka
+
+package BotModules::Postman;
+use vars qw(@ISA);
+@ISA = qw(BotModules);
+use strict;
+use URI;
+use LWP::UserAgent;
+use Data::Dumper;
+
+#use constant SEPARATOR => ' -- ';
+#use constant REFERER   => 'http://www.mozilla.org/projects/mozbot/';
+#1;
+my $tracker = "http://tracker2.postman.i2p/";
+my %categories = (
+		'all', -1,
+        'movies', 1,
+        'music', 2,
+        'tv', 3,
+        'games', 4,
+        'apps', 5,
+        'misc', 6,
+        'pictures', 8,
+        'anime', 9,
+        'comics', 10,
+        'books', 11,
+        'musicvid', 13,
+        'porn', 14,
+        'documentary', 15,
+        'leaks', 16,
+        'audiobooks', 17,
+        'conspiracy', 18
+    );
+
+sub Help
+{
+	my $self = shift;
+	my ($event) = @_;
+	return {
+		''       => q{Queries Google for specified search terms. },
+		'google' => q{Searches google for the specified terms.}
+		  . q{Syntax: 'google <terms>'},
+		'fight' => q{Google fight two terms.}
+		  . q{Syntax: 'fight <term1> vs. <term2>'}
+	};
+}
+
+# RegisterConfig - Called when initialised, should call registerVariables
+sub RegisterConfig
+{
+	my $self = shift;
+	$self->SUPER::RegisterConfig(@_);
+	$self->registerVariables(
+
+		# [ name, save?, settable? ]
+		[ 'maxResults',    1, 1, 8 ],
+		[ 'maxInChannel',  1, 1, 1 ],
+		[ 'safeSearch',    1, 1, 1 ],
+		[ 'maxLineLength', 1, 1, 256 ]
+	);
+}
+
+sub Told
+{
+	my $self = shift;
+	my ( $event, $message ) = @_;
+	
+	Heard($self, $event, $message);
+	return 0;    # we've dealt with it, no need to do anything else.
+}
+
+sub Heard
+{
+	my $self = shift;
+	my ( $event, $message ) = @_;
+	my $shortMessage;
+	my $category;
+	my $terms;
+	
+	if ( $message =~ /^\s*\@postman\s(.+?)\s(.+)$/i )
+	{
+		$category = lc($1);
+		$terms    = $2;
+	}
+	elsif($message =~ /^\s*\@postman\s(.+?)$/i )
+	{
+		$category = 'all';
+		$terms = $1;
+	}
+	else
+	{
+		return $self->SUPER::Told(@_);
+	}
+
+	#If specified category doesn't exist, search ALL (-1)		
+	if($categories{$category} eq undef)
+	{
+		#Prepend category to term because its supposed to be part of the search
+		$terms = $category ." " .$terms;
+		#And default the search to the ALL category
+		$category = $categories{'all'};
+		$self->say( $event, "Looks like you didn't select a category or specified an incorrect one, searching ALL...." );
+	}
+	else
+	{
+		$category = $categories{$category};
+	}
+	
+	$self->debug("[heard] terms: '$terms'");
+	$self->debug("[heard] category: '$category'");
+	
+	my @searchResults = $self->doSearch( $self, $terms, $category);
+
+	if ( !@searchResults )
+	{
+		$self->say( $event, "Nothing found." );
+	}
+
+	# If we are in a channel, and not a /msg
+	elsif ( $event->{'channel'} )
+	{
+		splice( @searchResults, $self->{'maxInChannel'} );
+	}
+	# We're in a /msg
+	else
+	{
+		unshift( @searchResults,
+		scalar(@searchResults) . " results found: " );
+	}
+
+	foreach my $result (@searchResults)
+	{
+		$self->say( $event, $event->{'from'} . ': ' . $result );
+	}
+	$self->debug("message: '$message'");
+	$self->debug("shortMessage: '$shortMessage'");
+	
+	return 0;    # we've dealt with it, no need to do anything else.
+}
+
+#sub categoryclean {
+#    my $self = shift;
+#    my ($category) = @_;
+#
+#       if ($category =~ m/movies/i;)
+#		my $searchcat = 1
+#
+#
+#  $self->debug("searchcat: '$searchcat'");
+#}
+#}
+
+# Performs the actual Postman search and returns the
+# result as an array of lines to say.
+sub doSearch
+{
+
+	my ( $self, $test, $terms, $category) = @_;
+
+	my $url = URI->new($tracker ."?search=$terms&category=$category&orderby=-1&lastactive=0&lang=-1");
+
+	$self->debug("url: '$url'");
+	my $ua = LWP::UserAgent->new();
+	$ua->proxy( ['http'], 'http://127.0.0.1:4444/' );
+	my $response = $ua->get($url) or return("Error : The request seems to have failed... sorry about that.");
+
+	return ( extract_and_sort( $response->content ) );
+}
+
+sub extract_and_sort
+{
+	my $html = shift;
+	my @topicResults;
+	my $cnt = 0;
+
+	print("Digging through html response ... \n");
+	
+	if($html =~ m/.*500 read timeout.*/)
+	{
+		return("Error : The request seems to have timed out... sorry about that.");
+	}
+
+	foreach my $entry ( split( "<ul class=\"topiclist topics\">", $html ) )
+	{
+		my $resultText;
+		my $title;
+		my $downloadLink;
+		
+		if($cnt == 0)
+		{
+			$cnt++;
+			next;
+		}
+		
+		#Find the torrent title
+		if ( $entry =~ m/<a href=\"index.php\?view=TorrentDetail.*title=\"(.*?)\">/ )
+		{
+			$title = $1;
+		}
+		else
+		{
+			$title = " ? "
+		}
+		
+		#Split out the attributes for this torrent
+		my @attributes = split(/<dd class=\"views\">(.*?)<\/dd>/, $entry);
+		
+		#Get the category ... remove this if we did a cat search?
+		$resultText = $attributes[1] ." :: " .$title ." :: ";
+		
+		#Get the download link
+		if($attributes[2] =~ /<a href=\"(.*?)\">/)
+		{
+			$downloadLink = $tracker .$1;
+		} 
+		
+		#Get the torrent date
+		$resultText .= "Posted " .$attributes[5] ." :: ";
+		
+		#Get the torrent size
+		$resultText .= "Size " .$attributes[7] ." :: ";
+		
+		#Get the seed/leech
+		$resultText .= "S/L " .$attributes[9] ." :: ";
+		
+		#Get the author
+		if($attributes[11] =~ m/<i>(.*?)<\/i>/)
+		{
+			$resultText .= "N/A :: ";
+		}
+		else
+		{
+			$resultText .= $attributes[11] ." :: ";
+		}
+		
+		#Add download link to end
+		$resultText .= "Download @ " .$downloadLink ."";
+
+		push( @topicResults, $resultText );
+	}
+	return (@topicResults);
+}
