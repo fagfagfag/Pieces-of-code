@@ -1,0 +1,88 @@
+Public Class Form1
+ 
+    Const password As String = "password"
+ 
+    Private Sub btnOpen_Click(sender As System.Object, e As System.EventArgs) Handles btnOpen.Click
+ 
+        Dim passcheck As String
+        Dim count As Integer = 1
+        Dim attemptsremaining As Integer = 3
+ 
+        Do While count <= 3
+ 
+            passcheck = InputBox("Please input the password.", "Security Check", "")
+ 
+            If passcheck = password Then
+                MsgBox("Password is correct. Access granted.")
+                Me.Close()
+            Else
+                count = count + 1
+                attemptsremaining = attemptsremaining - 1
+                MsgBox("The password is incorrect. You have " & attemptsremaining & " attempt(s) remaining.")
+            End If
+        Loop
+ 
+        If count = 4 Then
+            Me.Close()
+        End If
+ 
+    End Sub
+End Class
+
+
+
+
+PHP REGISTER
+
+
+function register ($username, $mail, $password)
+{
+try
+{
+        $bdd = new PDO('mysql:host=localhost;dbname=database', 'root', '');
+}
+        catch(Exception $e)
+{
+        die('Erreur : '.$e->getMessage());
+}
+ 
+//set email & pw in variables
+ 
+$alreadyregistered = "SELECT mail FROM jito_users WHERE mail = '$mail'";
+$reponse = $bdd->query($alreadyregistered);
+$alreadyregisteredd = "SELECT username FROM jito_users WHERE username = '$username'";
+$reponsed = $bdd->query($alreadyregisteredd);
+ 
+ 
+ 
+if (filter_var("$mail", FILTER_VALIDATE_EMAIL)) {
+        while ($donnees = $reponse->fetch()) {
+                $count = $reponse->rowCount();
+        }
+        while ($donneesd = $reponsed->fetch()) {
+                $countd = $reponsed->rowCount();
+        }
+        if (!empty($count)) {
+                echo 'Adresse email déjà utilisée ';
+        }
+        if (!empty($countd)) {
+                echo 'Nom d\'utilisateur déjà utilisé ';
+        }if ((empty($countd)) && (empty($count))) {
+                $hashedpassword = password_hash($password, PASSWORD_BCRYPT, array("cost" => 10));
+                $req = $bdd->prepare('INSERT INTO jito_users (mail, password, username) VALUES(:mail, :password, :username)');
+                $req->execute(array(
+                        'mail' => $mail,
+                        'password' => $hashedpassword,
+                        'username' => $username
+                ));
+                $_SESSION['mail'] = $mail;
+                $_SESSION['pw'] = $password;
+                $_SESSION['username'] = $username;
+                loginimprov($username, $password);
+                header('Location: index.php');
+        }
+}else {
+        echo 'Veuillez entrer une adresse mail valide';
+}
+$reponse->closeCursor();
+}
